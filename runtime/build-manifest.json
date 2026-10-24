@@ -3,7 +3,7 @@
   "platform": "portable browser WebAssembly; Node.js host",
   "gameFiles": 1702,
   "sha256": {
-    "app/boot.js": "949c239175ff35e6c57a6d44b95c8723d4d4b278fca4e2ede0353e8ba4ba1f53",
+    "app/boot.js": "131e048abfa0956072f80956750d13833f1ca6f2c418274779f5c68d25b050ee",
     "app/index.html": "944c4ee6962c864f6a30cd7f247a4ecbef9f473d5bf9cecd6a9b020d277afbc0",
     "app/gpu_worker.js": "d20d0d698a7e0e77cfba7282fcc318f226a63715a974e8bf9c911fa52417386e",
     "app/audio_worklet.js": "4ad95735fbd784598184e0d41057cd24f9c5594c514bf9835395c2b1af52dee2",

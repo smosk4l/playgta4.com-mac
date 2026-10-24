@@ -94,6 +94,7 @@
   // All draw inputs are captured before this native acknowledgment. The
   // existing present/GPU limits still bound queued work and buffer reuse.
   add('webgpu_early_frame_ack', 'true');
+  add('saved_game_root', '/data/LibertyRecomp/saves');
   // Keep diagnostics disabled, including when an old bookmarked URL enables them.
   const diagnostics = {
    diagnostics: 'false', diagnostics_categories: '', webgpu_perf_report: 'false',
@@ -104,7 +105,7 @@
    for (let i = args.length - 1; i >= 0; i--) {
     if (args[i] === '--' + name || args[i].startsWith('--' + name + '=')) args.splice(i, 1);
    }
-   args.push('--' + name + '=' + value);
+   if (value !== '') args.push('--' + name + '=' + value);
   }
   return args;
  };
@@ -255,6 +256,332 @@
       append('Mounted ' + files.length + ' game files from the server');
     }
 
+    const SAVE_ROOT = '/data/LibertyRecomp/saves';
+    const DB_NAME = 'LibertyRecompSaves';
+    const STORE_NAME = 'saves';
+
+    function openSaveDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: 'relPath' });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    function collectCurrentSaves() {
+      const items = [];
+      function scan(dir) {
+        let entries;
+        try {
+          entries = FS.readdir(dir);
+        } catch (e) {
+          return;
+        }
+        for (const name of entries) {
+          if (name === '.' || name === '..') continue;
+          const fullPath = (dir === '/' ? '' : dir) + '/' + name;
+          try {
+            const stat = FS.stat(fullPath);
+            const relPath = fullPath.slice(SAVE_ROOT.length).replace(/^\/+/, '');
+            if (!relPath) continue;
+            if (FS.isDir(stat.mode)) {
+              items.push({
+                relPath,
+                isDir: true,
+                mode: stat.mode,
+                mtime: stat.mtime instanceof Date ? stat.mtime.getTime() : (stat.mtime || Date.now())
+              });
+              scan(fullPath);
+            } else if (FS.isFile(stat.mode)) {
+              const contents = FS.readFile(fullPath);
+              items.push({
+                relPath,
+                isDir: false,
+                mode: stat.mode,
+                mtime: stat.mtime instanceof Date ? stat.mtime.getTime() : (stat.mtime || Date.now()),
+                contents: new Uint8Array(contents)
+              });
+            }
+          } catch (e) {
+            console.warn('[saves] Error scanning:', fullPath, e);
+          }
+        }
+      }
+      scan(SAVE_ROOT);
+      return items;
+    }
+
+    let isPersisting = false;
+    let pendingPersist = false;
+
+    async function persistSavesToIndexedDB() {
+      if (isPersisting) {
+        pendingPersist = true;
+        return;
+      }
+      isPersisting = true;
+      pendingPersist = false;
+      try {
+        const items = collectCurrentSaves();
+        if (!items.length) {
+          isPersisting = false;
+          return;
+        }
+        const db = await openSaveDB();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          const store = tx.objectStore(STORE_NAME);
+
+          const keysReq = store.getAllKeys();
+          keysReq.onsuccess = () => {
+            const oldKeys = new Set(keysReq.result || []);
+            const currentKeys = new Set();
+
+            for (const item of items) {
+              currentKeys.add(item.relPath);
+              store.put(item);
+            }
+
+            for (const k of oldKeys) {
+              if (!currentKeys.has(k)) {
+                store.delete(k);
+              }
+            }
+          };
+
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+        const fileCount = items.filter(x => !x.isDir).length;
+        append('[saves] Persisted ' + fileCount + ' save files to browser storage');
+      } catch (err) {
+        console.warn('[saves] Persist failed:', err);
+      } finally {
+        isPersisting = false;
+        if (pendingPersist) {
+          persistSavesToIndexedDB();
+        }
+      }
+    }
+
+    let saveSyncTimer = null;
+    function scheduleSaveSync(delayMs = 250) {
+      if (saveSyncTimer) clearTimeout(saveSyncTimer);
+      saveSyncTimer = setTimeout(() => {
+        saveSyncTimer = null;
+        persistSavesToIndexedDB();
+      }, delayMs);
+    }
+
+    async function restoreSavesFromIndexedDB() {
+      let db;
+      try {
+        db = await openSaveDB();
+      } catch (e) {
+        console.warn('[saves] Cannot open IndexedDB for restore:', e);
+        return;
+      }
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAll();
+        req.onsuccess = () => {
+          const records = req.result || [];
+          if (!records.length) {
+            append('[saves] No existing saves found in browser storage');
+            return resolve();
+          }
+          records.sort((a, b) => a.relPath.localeCompare(b.relPath));
+          let restoredCount = 0;
+          for (const rec of records) {
+            const fullPath = SAVE_ROOT + '/' + rec.relPath;
+            try {
+              if (rec.isDir) {
+                FS.mkdirTree(fullPath);
+              } else {
+                const slash = fullPath.lastIndexOf('/');
+                if (slash >= 0) FS.mkdirTree(fullPath.slice(0, slash));
+                FS.writeFile(fullPath, rec.contents);
+                if (rec.mode) {
+                  try { FS.chmod(fullPath, rec.mode); } catch (e) {}
+                }
+                if (rec.mtime) {
+                  try { FS.utime(fullPath, rec.mtime, rec.mtime); } catch (e) {}
+                }
+                restoredCount++;
+              }
+            } catch (e) {
+              console.warn('[saves] Error restoring:', fullPath, e);
+            }
+          }
+          append('[saves] Restored ' + restoredCount + ' save files from browser storage');
+          resolve();
+        };
+        req.onerror = () => {
+          console.warn('[saves] Error fetching saves from IndexedDB:', req.error);
+          resolve();
+        };
+      });
+    }
+
+    const SaveFilesystem = {
+      mount(mount) {
+        return (FS.filesystems?.MEMFS || MEMFS).mount(mount);
+      },
+      syncfs(mount, populate, callback) {
+        if (populate) {
+          restoreSavesFromIndexedDB().then(() => callback(null)).catch((e) => callback(e || 1));
+        } else {
+          persistSavesToIndexedDB().then(() => callback(null)).catch((e) => callback(e || 1));
+        }
+      }
+    };
+
+    function setupSavePersistence() {
+      addRunDependency('restore-saves');
+      try {
+        FS.filesystems.IDBFS = SaveFilesystem;
+        FS.mkdirTree(SAVE_ROOT);
+        FS.mount(SaveFilesystem, {}, SAVE_ROOT);
+      } catch (e) {
+        console.warn('[saves] Mount setup notice:', e.message);
+      }
+
+      if (!FS._savesHooked) {
+        FS._savesHooked = true;
+        const isSavePath = (p) => typeof p === 'string' && p.startsWith(SAVE_ROOT);
+
+        const origClose = FS.close;
+        FS.close = function (stream) {
+          const res = origClose.apply(this, arguments);
+          try {
+            const path = stream?.node ? FS.getPath(stream.node) : '';
+            if (isSavePath(path)) scheduleSaveSync(200);
+          } catch (e) {}
+          return res;
+        };
+
+        const origRename = FS.rename;
+        FS.rename = function (oldPath, newPath) {
+          const res = origRename.apply(this, arguments);
+          try {
+            if (isSavePath(oldPath) || isSavePath(newPath)) scheduleSaveSync(200);
+          } catch (e) {}
+          return res;
+        };
+
+        const origUnlink = FS.unlink;
+        FS.unlink = function (path) {
+          const res = origUnlink.apply(this, arguments);
+          try {
+            if (isSavePath(path)) scheduleSaveSync(200);
+          } catch (e) {}
+          return res;
+        };
+
+        const origRmdir = FS.rmdir;
+        FS.rmdir = function (path) {
+          const res = origRmdir.apply(this, arguments);
+          try {
+            if (isSavePath(path)) scheduleSaveSync(200);
+          } catch (e) {}
+          return res;
+        };
+
+        window.addEventListener('beforeunload', () => persistSavesToIndexedDB());
+        window.addEventListener('pagehide', () => persistSavesToIndexedDB());
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden') persistSavesToIndexedDB();
+        });
+        setInterval(() => scheduleSaveSync(0), 5000);
+      }
+
+      restoreSavesFromIndexedDB()
+        .catch((err) => console.error('[saves] Restore failed:', err))
+        .finally(() => {
+          removeRunDependency('restore-saves');
+        });
+    }
+
+    window.exportSaves = async function () {
+      await persistSavesToIndexedDB();
+      const db = await openSaveDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAll();
+        req.onsuccess = () => {
+          const records = req.result || [];
+          const payload = records.map(r => ({
+            relPath: r.relPath,
+            isDir: r.isDir,
+            mode: r.mode,
+            mtime: r.mtime,
+            contents: r.contents ? Array.from(r.contents) : null
+          }));
+          const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'gta4_saves_backup.json';
+          a.click();
+          URL.revokeObjectURL(url);
+          resolve(payload.length);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    };
+
+    window.importSaves = async function (jsonInput) {
+      if (!jsonInput) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = async () => {
+          const file = input.files?.[0];
+          if (file) {
+            const text = await file.text();
+            await window.importSaves(text);
+            alert('Save files imported successfully! Reload to apply if needed.');
+          }
+        };
+        input.click();
+        return;
+      }
+      let data;
+      if (typeof jsonInput === 'string') {
+        data = JSON.parse(jsonInput);
+      } else {
+        data = jsonInput;
+      }
+      const db = await openSaveDB();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        for (const item of data) {
+          store.put({
+            relPath: item.relPath,
+            isDir: item.isDir,
+            mode: item.mode,
+            mtime: item.mtime,
+            contents: item.contents ? new Uint8Array(item.contents) : undefined
+          });
+        }
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      if (typeof FS !== 'undefined') {
+        await restoreSavesFromIndexedDB();
+      }
+      console.log('[saves] Successfully imported ' + data.length + ' save entries');
+    };
+
     const input = document.getElementById('canvas');
     for (const name of ['requestFullscreen', 'webkitRequestFullscreen']) {
       input[name] = (options) => (document.documentElement.requestFullscreen ||
@@ -267,7 +594,7 @@
       print: (text) => log(text, false),
       printErr: (text) => log(text, true),
       setStatus: (text) => { if (text) status(text); },
-      preRun: [mountGameFiles],
+      preRun: [mountGameFiles, setupSavePersistence],
       onRuntimeInitialized: () => {
         status('Running', 100);
         document.getElementById('boot').classList.add('boot-hidden');
