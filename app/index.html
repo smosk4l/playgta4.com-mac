@@ -34,7 +34,31 @@
 
 
 
+<!-- Save backup panel (F9 or Option+S) and save toast; wired up by saves.js. -->
+<div id="saves-panel" hidden>
+  <p class="saves-status"></p>
+  <button type="button" data-action="export">Export saves</button>
+  <button type="button" data-action="import">Import saves</button>
+  <button type="button" data-action="close">Close (F9 / ⌥S)</button>
+</div>
+<div id="saves-toast" role="status" aria-live="polite"></div>
+
 <script src="audio_output.js"></script>
+<script src="gamefs.js"></script>
+<script src="saves.js"></script>
+<script src="tweaks.js"></script>
+<script src="tweaks/upscaler.js"></script>
+<script src="tweaks/resolution.js"></script>
+<script src="tweaks/performance.js"></script>
+<script src="tweaks/mouse_settings.js"></script>
+<script src="tweaks/quicksave.js"></script>
+<script src="tweaks/controls.js"></script>
+<script src="tweaks/fixes.js"></script>
+<script src="tweaks/raw_mouse.js"></script>
+<script src="tweaks/mouse_chords.js"></script>
+<script src="tweaks/nav_guard.js"></script>
+<script src="tweaks/wheel.js"></script>
+<script src="tweaks/keyboard_lock.js"></script>
 <script src="boot.js"></script>
 </body>
 </html>

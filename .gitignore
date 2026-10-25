@@ -2,3 +2,5 @@
 **/.DS_Store
 /data/
 *.log
+/saves/
+game/.common.rpf.orig

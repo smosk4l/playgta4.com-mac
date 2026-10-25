@@ -186,3 +186,73 @@ code {
 
 /* Launch directly into the game; retain the independent error overlay. */
 #boot { display: none !important; }
+
+#fps {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  padding: 2px 6px;
+  font: 12px/1.4 ui-monospace, monospace;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/* ── Saves: F9 panel and toast (saves.js) ─────────────────────────────── */
+#saves-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  max-width: min(640px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(11, 13, 16, 0.92);
+  font-size: 12px;
+}
+#saves-panel[hidden] { display: none; }
+.saves-status {
+  flex-basis: 100%;
+  margin: 0 0 2px;
+  color: var(--dim);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+#saves-panel button {
+  padding: 6px 10px;
+  border: 1px solid #ffffff40;
+  border-radius: 6px;
+  background: #ffffff12;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+#saves-panel button:hover, #saves-panel button:focus-visible { border-color: var(--accent); }
+
+#saves-toast {
+  position: fixed;
+  left: 50%;
+  top: 16px;
+  transform: translate(-50%, -8px);
+  z-index: 40;
+  max-width: calc(100vw - 32px);
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+#saves-toast.show { opacity: 1; transform: translate(-50%, 0); }
+#saves-toast.ok { color: #7bd88f; }
+#saves-toast.err { color: #ff7b7b; }

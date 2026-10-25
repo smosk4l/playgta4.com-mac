@@ -5,10 +5,14 @@
  async function prepare(module) {
   const Context = globalThis.AudioContext || globalThis.webkitAudioContext;
   if (!Context || !globalThis.AudioWorkletNode || !globalThis.SharedArrayBuffer) return;
-  const sdl = module.SDL3;
+  const sdl = module.SDL3 = module.SDL3 || {};
   const context = new Context({ latencyHint: 'interactive' });
   try {
-   await context.audioWorklet.addModule('audio_worklet.js');
+   // Startup waits on this (run dependency); never let a stalled load block the game.
+   await Promise.race([
+    context.audioWorklet.addModule('audio_worklet.js'),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('module load timed out')), 5000)),
+   ]);
   } catch (error) {
    await context.close();
    module.printErr('AudioWorklet unavailable; using SDL playback: ' + error.message);
@@ -17,8 +21,13 @@
   const original = context.createScriptProcessor.bind(context);
   context.createScriptProcessor = function (frames, inputs, channels) {
    if (inputs !== 0) return original(frames, inputs, channels);
-   // Four SDL blocks absorb short scheduling stalls. Never queue unbounded audio.
-   const target = frames * 4;
+   // Queue depth in SDL blocks (~43 ms each at 48 kHz). Every queued block is heard that much later,
+   // so keep it at one block (~45-85 ms queued instead of the ~200 ms four blocks cost); the page
+   // thread is nearly idle, and no underruns showed while driving. ?audioblocks= (remembered) adds
+   // headroom if audio crackles.
+   const blocks = Math.min(Math.max(Number(globalThis.LibertyTweaks?.setting('audioblocks', '1')) || 1, 1), 8);
+   const target = Math.round(frames * blocks);
+   // Never queue unbounded audio.
    let capacity = 1;
    while (capacity < target + frames) capacity *= 2;
    const shared = new SharedArrayBuffer(32 + capacity * channels * 4);
@@ -37,8 +46,10 @@
      if (connected) return;
      connected = true;
      node.connect(destination);
+     // Never pump synchronously here: SDL calls connect() from OpenDevice, which a
+     // game thread proxies to this thread while holding the device lock. Running
+     // SDL's callback now would block on that lock forever (page thread deadlock).
      timer = setInterval(pump, 8);
-     pump();
     },
     disconnect() {
      connected = false;
