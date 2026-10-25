@@ -28,7 +28,11 @@
 		// width/height stay even through the same 2 * round(x / 2) rounding.
 		const dpr = globalThis.devicePixelRatio || 1;
 		const scale = Math.max(Math.min(innerWidth * dpr / 16, innerHeight * dpr / 9, cap / 9), MIN_HEIGHT / 9);
-		add('video_mode_width', 2 * Math.round(scale * 8));
-		add('video_mode_height', 2 * Math.round(scale * 4.5));
+		// tweaks/fixes.js snaps the size to one the renderer's exposure chain handles (?exposurefix=off).
+		if (globalThis.libertyAddVideoMode) globalThis.libertyAddVideoMode(add, scale);
+		else {
+			add('video_mode_width', 2 * Math.round(scale * 8));
+			add('video_mode_height', 2 * Math.round(scale * 4.5));
+		}
 	});
 })();

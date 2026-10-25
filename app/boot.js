@@ -98,8 +98,12 @@
    if (params.get('res')) add('resolution', params.get('res'));
    else {
     const scale = Math.min(innerWidth * devicePixelRatio / 16, innerHeight * devicePixelRatio / 9, 160);
-    add('video_mode_width', 2 * Math.round(scale * 8));
-    add('video_mode_height', 2 * Math.round(scale * 4.5));
+    // tweaks/fixes.js snaps the size to one the renderer's exposure chain handles (?exposurefix=off).
+    if (globalThis.libertyAddVideoMode) globalThis.libertyAddVideoMode(add, scale);
+    else {
+     add('video_mode_width', 2 * Math.round(scale * 8));
+     add('video_mode_height', 2 * Math.round(scale * 4.5));
+    }
    }
   }
   // Caps the game simulation as well as presentation (0 unlocks; 30, 40, 60 and 120 are accepted).

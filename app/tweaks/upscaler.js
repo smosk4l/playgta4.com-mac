@@ -42,8 +42,12 @@
 		// the user picked a resolution. Adding it here makes later resolution tweaks back off via has().
 		if (!has('video_mode_width') && !has('video_mode_height') && !has('resolution') && !params.get('res')) {
 			const scale = Math.min(innerWidth * devicePixelRatio / 16, innerHeight * devicePixelRatio / 9, 160);
-			add('video_mode_width', 2 * Math.round(scale * 8));
-			add('video_mode_height', 2 * Math.round(scale * 4.5));
+			// tweaks/fixes.js snaps the size to one the renderer's exposure chain handles (?exposurefix=off).
+			if (globalThis.libertyAddVideoMode) globalThis.libertyAddVideoMode(add, scale);
+			else {
+				add('video_mode_width', 2 * Math.round(scale * 8));
+				add('video_mode_height', 2 * Math.round(scale * 4.5));
+			}
 		}
 		console.info('[tweaks] upscaler: fsr1 quality=' + quality +
 			' (experimental on WebGPU; look for the gta4-native-upscaler log line)');
