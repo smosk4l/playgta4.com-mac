@@ -105,7 +105,7 @@
 			}
 			await press('accept');
 			await sleep(scaled(TIMING.call));
-			toast(cheat.label + ': gotowe', 'ok');
+			toast(cheat.label + ': numer wybrany', 'ok');
 		} finally {
 			running = false;
 		}
@@ -129,15 +129,20 @@
 		if (!pad) return pad;
 		return {
 			id: pad.id, index: pad.index, connected: pad.connected, mapping: pad.mapping,
-			timestamp: performance.now(), // a new timestamp, or SDL skips the update
+			// One new timestamp per block: SDL skips states whose timestamp it has seen, so it applies
+			// the released state once and then sees an idle pad, like a real pad at rest.
+			timestamp: maskStamp,
 			axes: pad.axes.map(() => 0), buttons: pad.buttons.map(() => RELEASED),
 			vibrationActuator: pad.vibrationActuator, hapticActuators: pad.hapticActuators,
 		};
 	}
+	let maskStamp = 0, masked = false;
 	function padsBlocked(pads) {
-		if (!panel.hidden || running) return true;
-		if (holdBlock && !anyPressed(pads)) holdBlock = false;
-		return holdBlock;
+		let block = !panel.hidden || running;
+		if (!block && holdBlock) block = holdBlock = anyPressed(pads);
+		if (block && !masked) maskStamp = performance.now();
+		masked = block;
+		return block;
 	}
 	if (realGetGamepads) {
 		try {
@@ -226,7 +231,7 @@
 	note.className = 'cheats-note';
 	note.textContent = 'Kod wybiera numer w telefonie w grze: przez kilkanaście sekund nie ruszaj klawiatury ani pada. ' +
 		'Działa tylko w trakcie zwykłej gry (nie w menu, przerywnikach ani w trakcie rozmowy). ' +
-		'Uwaga: kody mogą zablokować osiągnięcia.';
+		'Jeśli numer się nie wpisze, schowaj telefon (Backspace) i spróbuj ponownie. Uwaga: kody mogą zablokować osiągnięcia.';
 	const padNote = document.createElement('p');
 	padNote.className = 'cheats-note';
 	padNote.textContent = 'Klawiatura: strzałki, Enter wybierz, Esc zamknij. Pad: Touchpad: otwórz/zamknij, ✕ wybierz, ○ zamknij';
